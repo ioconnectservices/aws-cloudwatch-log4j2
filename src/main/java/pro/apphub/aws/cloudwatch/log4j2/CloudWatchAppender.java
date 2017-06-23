@@ -17,9 +17,56 @@
 
 package pro.apphub.aws.cloudwatch.log4j2;
 
+import org.apache.logging.log4j.core.Filter;
+import org.apache.logging.log4j.core.Layout;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Serializable;
+import java.net.InetAddress;
+import java.net.URL;
+import java.net.URLConnection;
+import java.net.UnknownHostException;
+
 /**
  * @author Dmitry Kotlyarov
  * @since 1.0
  */
-public class CloudWatchAppender {
+public final class CloudWatchAppender extends AbstractAppender {
+    private static final String instance = retrieveInstance();
+
+    public CloudWatchAppender(String name, Filter filter, Layout<? extends Serializable> layout) {
+        super(name, filter, layout);
+    }
+
+    @Override
+    public void append(LogEvent event) {
+    }
+
+    private static String retrieveInstance() {
+        try {
+            URL url = new URL("http://169.254.169.254/latest/meta-data/instance-id");
+            URLConnection conn = url.openConnection();
+            conn.setConnectTimeout(10000);
+            try (InputStream in = conn.getInputStream()) {
+                BufferedReader r = new BufferedReader(new InputStreamReader(in));
+                String instance = r.readLine();
+                if (instance != null) {
+                    return instance;
+                } else {
+                    throw new IOException("Instance is null");
+                }
+            }
+        } catch (IOException e) {
+            try {
+                return InetAddress.getLocalHost().getHostName();
+            } catch (UnknownHostException e1) {
+                throw new RuntimeException(e1);
+            }
+        }
+    }
 }
