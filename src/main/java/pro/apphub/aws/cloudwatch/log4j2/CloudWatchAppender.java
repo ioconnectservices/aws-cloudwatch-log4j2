@@ -17,6 +17,7 @@
 
 package pro.apphub.aws.cloudwatch.log4j2;
 
+import com.amazonaws.services.logs.model.InputLogEvent;
 import org.apache.logging.log4j.core.Filter;
 import org.apache.logging.log4j.core.Layout;
 import org.apache.logging.log4j.core.LogEvent;
@@ -31,6 +32,8 @@ import java.net.InetAddress;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.UnknownHostException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * @author Dmitry Kotlyarov
@@ -39,12 +42,41 @@ import java.net.UnknownHostException;
 public final class CloudWatchAppender extends AbstractAppender {
     private static final String instance = retrieveInstance();
 
+    private final Buffer buffer1;
+    private final Buffer buffer2;
+    private final AtomicBoolean flag = new AtomicBoolean(true);
+    private final AtomicLong lost = new AtomicLong(0L);
+    private final FlushWait flushWait = new FlushWait(60000L);
+
     public CloudWatchAppender(String name, Filter filter, Layout<? extends Serializable> layout) {
         super(name, filter, layout);
+
+        this.buffer1 = new Buffer(Buffer.MAX_BATCH_COUNT);
+        this.buffer2 = new Buffer(Buffer.MAX_BATCH_COUNT);
     }
 
     @Override
     public void append(LogEvent event) {
+        InputLogEvent e = new InputLogEvent();
+        e.setTimestamp(event.getTimeMillis());
+        e.setMessage(new String(getLayout().toByteArray(event)));
+        if (flag.get()) {
+            if (!buffer1.append(e, flushWait)) {
+                if (buffer2.append(e, flushWait)) {
+                    flag.set(false);
+                } else {
+                    lost.incrementAndGet();
+                }
+            }
+        } else {
+            if (!buffer2.append(e, flushWait)) {
+                if (buffer1.append(e, flushWait)) {
+                    flag.set(true);
+                } else {
+                    lost.incrementAndGet();
+                }
+            }
+        }
     }
 
     private static String retrieveInstance() {

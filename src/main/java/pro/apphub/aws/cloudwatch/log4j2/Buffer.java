@@ -18,12 +18,16 @@
 package pro.apphub.aws.cloudwatch.log4j2;
 
 import com.amazonaws.services.logs.AWSLogsClient;
+import com.amazonaws.services.logs.model.DataAlreadyAcceptedException;
 import com.amazonaws.services.logs.model.InputLogEvent;
+import com.amazonaws.services.logs.model.InvalidSequenceTokenException;
+import com.amazonaws.services.logs.model.PutLogEventsRequest;
+import com.amazonaws.services.logs.model.PutLogEventsResult;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -33,24 +37,48 @@ import java.util.concurrent.atomic.AtomicLong;
  * @since 1.0
  */
 final class Buffer {
-    private final AtomicBoolean flush = new AtomicBoolean(false);
+    public static final int MAX_BATCH_COUNT = 10000;
+    public static final int MAX_BATCH_SIZE = 1048576;
+
+    private final AtomicBoolean ready = new AtomicBoolean(true);
     private final AtomicInteger threads = new AtomicInteger(0);
-    private final LinkedBlockingQueue<InputLogEvent> events;
+    private final AtomicInteger size = new AtomicInteger(0);
+    private final int capacity;
+    private final ConcurrentLinkedQueue<InputLogEvent> eventsQueue;
     private final ArrayList<InputLogEvent> eventsList;
-    private final ArrayList<InputLogEvent> eventsPutList;
+    private final ArrayList<InputLogEvent> eventsBatch;
 
     public Buffer(int capacity) {
-        this.events = new LinkedBlockingQueue<>(capacity);
-        this.eventsList = new ArrayList<>(capacity);
-        this.eventsPutList = new ArrayList<>(capacity);
+        this.capacity = capacity;
+        this.eventsQueue = new ConcurrentLinkedQueue<>();
+        this.eventsList = new ArrayList<>(capacity + 1);
+        this.eventsBatch = new ArrayList<>(Math.min(capacity + 1, MAX_BATCH_COUNT));
     }
 
-    public boolean append(InputLogEvent event) {
-        if (!flush.get()) {
+    public boolean isReady() {
+        return ready.get();
+    }
+
+    public boolean append(InputLogEvent event, FlushWait flushWait) {
+        if (ready.get()) {
             threads.incrementAndGet();
             try {
-                if (!flush.get()) {
-                    return events.offer(event);
+                if (ready.get()) {
+                    int s = size.getAndIncrement();
+                    if (s < capacity) {
+                        eventsQueue.offer(event);
+                        if (s + 1 == capacity) {
+                            flushWait.signalAll(new Runnable() {
+                                @Override
+                                public void run() {
+                                    ready.set(false);
+                                }
+                            });
+                        }
+                        return true;
+                    } else {
+                        return false;
+                    }
                 } else {
                     return false;
                 }
@@ -62,53 +90,101 @@ final class Buffer {
         }
     }
 
-    public FlushInfo flush(AWSLogsClient logsClient, String group, String stream, FlushInfo flushInfo, AtomicLong lost) {
-        flush.set(true);
+    public Flush flush(AWSLogsClient logsClient, String group, String stream, Flush flush, AtomicLong lost) {
+        ready.set(false);
         try {
             while (threads.get() > 0) {
                 try {
-                    Thread.sleep(100L);
+                    Thread.sleep(200L);
                 } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
                 }
             }
-            try {
-                events.drainTo(eventsList);
-                Collections.sort(eventsList, new Comparator<InputLogEvent>() {
-                    @Override
-                    public int compare(InputLogEvent o1, InputLogEvent o2) {
-                        return o1.getTimestamp().compareTo(o2.getTimestamp());
+            if (size.get() > 0) {
+                try {
+                    for (InputLogEvent e : eventsQueue) {
+                        eventsList.add(e);
                     }
-                });
-                if (flushInfo.lastTimestamp > 0) {
-                    for (InputLogEvent event : eventsList) {
-                        if (event.getTimestamp() < flushInfo.lastTimestamp) {
-                            event.setTimestamp(flushInfo.lastTimestamp);
-                        } else {
-                            break;
+                    long l = lost.getAndSet(0L);
+                    if (l > 0L) {
+                        InputLogEvent e = new InputLogEvent();
+                        e.setTimestamp(System.currentTimeMillis());
+                        e.setMessage(String.format("[EVENTS_LOST]: %d", l));
+                        eventsList.add(e);
+                    }
+                    Collections.sort(eventsList, new Comparator<InputLogEvent>() {
+                        @Override
+                        public int compare(InputLogEvent o1, InputLogEvent o2) {
+                            return o1.getTimestamp().compareTo(o2.getTimestamp());
+                        }
+                    });
+                    long lts = flush.lastTimestamp;
+                    if (lts > 0) {
+                        for (InputLogEvent e : eventsList) {
+                            if (e.getTimestamp() < lts) {
+                                e.setTimestamp(lts);
+                            } else {
+                                break;
+                            }
                         }
                     }
-                }
-                int c = 0;
-                int s = 0;
-                for (InputLogEvent event : eventsList) {
-                    int es = event.getMessage().length() * 4 + 26;
-                    if ((c + 1 < 10000) && (s + es < 1048576)) {
-                        c++;
-                        s += es;
-                        eventsPutList.add(event);
-                    } else {
-                        c = 1;
-                        s = es;
-                        eventsPutList.clear();
-                        eventsPutList.add(event);
+                    lts = eventsList.get(eventsList.size() - 1).getTimestamp();
+                    String stok = flush.sequenceToken;
+                    int c = 0;
+                    int s = 0;
+                    for (InputLogEvent e : eventsList) {
+                        int es = e.getMessage().length() * 4 + 26;
+                        if ((c + 1 < MAX_BATCH_COUNT) && (s + es < MAX_BATCH_SIZE)) {
+                            c++;
+                            s += es;
+                            eventsBatch.add(e);
+                        } else {
+                            stok = putEvents(logsClient, group, stream, stok, lost, eventsBatch);
+                            c = 1;
+                            s = es;
+                            eventsBatch.clear();
+                            eventsBatch.add(e);
+                        }
                     }
+                    stok = putEvents(logsClient, group, stream, stok, lost, eventsBatch);
+                    return new Flush(lts, stok);
+                } finally {
+                    eventsBatch.clear();
+                    eventsList.clear();
+                    eventsQueue.clear();
+                    size.set(0);
                 }
-            } finally {
-                eventsList.clear();
+            } else {
+                return flush;
             }
         } finally {
-            flush.set(false);
+            ready.set(true);
+        }
+    }
+
+    private String putEvents(AWSLogsClient logsClient,
+                             String group,
+                             String stream,
+                             String sequenceToken,
+                             AtomicLong lost,
+                             ArrayList<InputLogEvent> eventsBatch) {
+        if (!eventsBatch.isEmpty()) {
+            try {
+                PutLogEventsRequest req = new PutLogEventsRequest(group, stream, eventsBatch);
+                req.setSequenceToken(sequenceToken);
+                PutLogEventsResult res = logsClient.putLogEvents(req);
+                return res.getNextSequenceToken();
+            } catch (DataAlreadyAcceptedException e) {
+                lost.addAndGet(eventsBatch.size());
+                return e.getExpectedSequenceToken();
+            } catch (InvalidSequenceTokenException e) {
+                lost.addAndGet(eventsBatch.size());
+                return e.getExpectedSequenceToken();
+            } catch (Exception e) {
+                lost.addAndGet(eventsBatch.size());
+                return sequenceToken;
+            }
+        } else {
+            return sequenceToken;
         }
     }
 }
