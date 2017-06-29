@@ -90,7 +90,7 @@ final class Buffer {
         }
     }
 
-    public Flush flush(AWSLogsClient logsClient, String group, String stream, Flush flush, AtomicLong lost) {
+    public FlushInfo flush(AWSLogsClient logsClient, String group, String stream, FlushInfo flushInfo, AtomicLong lost) {
         ready.set(false);
         try {
             while (threads.get() > 0) {
@@ -117,7 +117,7 @@ final class Buffer {
                             return o1.getTimestamp().compareTo(o2.getTimestamp());
                         }
                     });
-                    long lts = flush.lastTimestamp;
+                    long lts = flushInfo.lastTimestamp;
                     if (lts > 0) {
                         for (InputLogEvent e : eventsList) {
                             if (e.getTimestamp() < lts) {
@@ -128,7 +128,7 @@ final class Buffer {
                         }
                     }
                     lts = eventsList.get(eventsList.size() - 1).getTimestamp();
-                    String stok = flush.sequenceToken;
+                    String stok = flushInfo.sequenceToken;
                     int c = 0;
                     int s = 0;
                     for (InputLogEvent e : eventsList) {
@@ -146,7 +146,7 @@ final class Buffer {
                         }
                     }
                     stok = putEvents(logsClient, group, stream, stok, lost, eventsBatch);
-                    return new Flush(lts, stok);
+                    return new FlushInfo(lts, stok);
                 } finally {
                     eventsBatch.clear();
                     eventsList.clear();
@@ -154,7 +154,7 @@ final class Buffer {
                     size.set(0);
                 }
             } else {
-                return flush;
+                return flushInfo;
             }
         } finally {
             ready.set(true);

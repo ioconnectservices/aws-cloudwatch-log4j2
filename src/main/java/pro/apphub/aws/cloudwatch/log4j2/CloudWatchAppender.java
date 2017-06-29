@@ -17,6 +17,8 @@
 
 package pro.apphub.aws.cloudwatch.log4j2;
 
+import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.services.logs.AWSLogsClient;
 import com.amazonaws.services.logs.model.InputLogEvent;
 import org.apache.logging.log4j.core.Filter;
 import org.apache.logging.log4j.core.Layout;
@@ -34,25 +36,67 @@ import java.net.URLConnection;
 import java.net.UnknownHostException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * @author Dmitry Kotlyarov
  * @since 1.0
  */
 public final class CloudWatchAppender extends AbstractAppender {
-    private static final String instance = retrieveInstance();
+    public static final String INSTANCE = retrieveInstance();
 
-    private final Buffer buffer1;
-    private final Buffer buffer2;
+    private final AtomicBoolean started = new AtomicBoolean(false);
     private final AtomicBoolean flag = new AtomicBoolean(true);
     private final AtomicLong lost = new AtomicLong(0L);
-    private final FlushWait flushWait = new FlushWait(60000L);
+    private final String group;
+    private final String stream;
+    private final AWSLogsClient client;
+    private final Buffer buffer1;
+    private final Buffer buffer2;
+    private final FlushWait flushWait;
+    private final Thread flushThread;
 
-    public CloudWatchAppender(String name, Filter filter, Layout<? extends Serializable> layout) {
+    public CloudWatchAppender(String name,
+                              String group,
+                              String streamPrefix,
+                              String streamPostfix,
+                              String access,
+                              String secret,
+                              int capacity,
+                              long span,
+                              Filter filter,
+                              Layout<? extends Serializable> layout) {
         super(name, filter, layout);
 
-        this.buffer1 = new Buffer(Buffer.MAX_BATCH_COUNT);
-        this.buffer2 = new Buffer(Buffer.MAX_BATCH_COUNT);
+        this.group = group;
+        this.stream = createStream(streamPrefix, streamPostfix);
+        this.client = createClient(access, secret);
+        this.buffer1 = new Buffer(capacity);
+        this.buffer2 = new Buffer(capacity);
+        this.flushWait = new FlushWait(span);
+        this.flushThread = new Thread("aws-cloudwatch-log4j2-flush") {
+            @Override
+            public void run() {
+                while (started.get()) {
+                    try {
+                        flushWait.await(buffer1, buffer2);
+                    } catch (Throwable e) {
+                    }
+                }
+            }
+        };
+    }
+
+    @Override
+    public void start() {
+        if (!started.getAndSet(true)) {
+            super.start();
+        }
+    }
+
+    @Override
+    public void stop() {
+        super.stop();
     }
 
     @Override
@@ -99,6 +143,25 @@ public final class CloudWatchAppender extends AbstractAppender {
             } catch (UnknownHostException e1) {
                 throw new RuntimeException(e1);
             }
+        }
+    }
+
+    private static String createStream(String prefix, String postfix) {
+        String s = INSTANCE;
+        if (prefix != null) {
+            s = String.format("%s/%s", prefix, s);
+        }
+        if (postfix != null) {
+            s = String.format("%s/%s", s, postfix);
+        }
+        return s;
+    }
+
+    private static AWSLogsClient createClient(String access, String secret) {
+        if ((access != null) && (secret != null)) {
+            return new AWSLogsClient(new BasicAWSCredentials(access, secret));
+        } else {
+            return new AWSLogsClient();
         }
     }
 }
