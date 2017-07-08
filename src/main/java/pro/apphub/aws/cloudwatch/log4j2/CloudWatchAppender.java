@@ -24,6 +24,9 @@ import org.apache.logging.log4j.core.Filter;
 import org.apache.logging.log4j.core.Layout;
 import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.plugins.PluginAttribute;
+import org.apache.logging.log4j.core.config.plugins.PluginElement;
+import org.apache.logging.log4j.core.config.plugins.PluginFactory;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -63,10 +66,9 @@ public final class CloudWatchAppender extends AbstractAppender {
                               String access,
                               String secret,
                               int capacity,
-                              long span,
-                              Filter filter,
+                              int span,
                               Layout<? extends Serializable> layout) {
-        super(name, filter, layout);
+        super(name, null, layout);
 
         this.group = group;
         this.stream = createStream(streamPrefix, streamPostfix);
@@ -123,6 +125,27 @@ public final class CloudWatchAppender extends AbstractAppender {
         }
     }
 
+    @PluginFactory
+    public static CloudWatchAppender createAppender(@PluginAttribute("name") String name,
+                                                    @PluginAttribute("group") String group,
+                                                    @PluginAttribute("streamPrefix") String streamPrefix,
+                                                    @PluginAttribute("streamPostfix") String streamPostfix,
+                                                    @PluginAttribute("access") String access,
+                                                    @PluginAttribute("secret") String secret,
+                                                    @PluginAttribute("capacity") String capacity,
+                                                    @PluginAttribute("span") String span,
+                                                    @PluginElement("Layout") Layout<? extends Serializable> layout) {
+        return new CloudWatchAppender((name != null) ? name : "CloudWatchAppender",
+                                      getProperty("aws.cloudwatch.group", "AWS_CLOUDWATCH_GROUP", group, null),
+                                      getProperty("aws.cloudwatch.stream.prefix", "AWS_CLOUDWATCH_STREAM_PREFIX", streamPrefix, null),
+                                      getProperty("aws.cloudwatch.stream.postfix", "AWS_CLOUDWATCH_STREAM_POSTFIX", streamPostfix, null),
+                                      getProperty("aws.cloudwatch.access", "AWS_CLOUDWATCH_ACCESS", access, null),
+                                      getProperty("aws.cloudwatch.secret", "AWS_CLOUDWATCH_SECRET", secret, null),
+                                      Integer.parseInt(getProperty("aws.cloudwatch.capacity", "AWS_CLOUDWATCH_CAPACITY", capacity, "10000")),
+                                      Integer.parseInt(getProperty("aws.cloudwatch.span", "AWS_CLOUDWATCH_SPAN", span, "60")),
+                                      layout);
+    }
+
     private static String retrieveInstance() {
         try {
             URL url = new URL("http://169.254.169.254/latest/meta-data/instance-id");
@@ -142,6 +165,33 @@ public final class CloudWatchAppender extends AbstractAppender {
                 return InetAddress.getLocalHost().getHostName();
             } catch (UnknownHostException e1) {
                 throw new RuntimeException(e1);
+            }
+        }
+    }
+
+    private static String getProperty(String property, String variable, String value) {
+        String v = getProperty(property, variable, value, null);
+        if (v != null) {
+            return v;
+        } else {
+            throw new IllegalArgumentException(String.format("Property ['%s', '%s'] is not defined", property, variable));
+        }
+    }
+
+    private static String getProperty(String property, String variable, String value, String def) {
+        String v = System.getProperty(property);
+        if (v != null) {
+            return v;
+        } else {
+            v = System.getenv(variable);
+            if (v != null) {
+                return v;
+            } else {
+                if (value != null) {
+                    return value;
+                } else {
+                    return def;
+                }
             }
         }
     }

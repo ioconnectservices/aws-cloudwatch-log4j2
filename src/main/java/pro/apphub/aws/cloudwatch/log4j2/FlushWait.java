@@ -32,8 +32,8 @@ final class FlushWait {
     private final long span;
     private long prevTime = 0;
 
-    public FlushWait(long span) {
-        this.span = span;
+    public FlushWait(int span) {
+        this.span = span * 1000L;
     }
 
     public void await(Buffer buffer1, Buffer buffer2) {
