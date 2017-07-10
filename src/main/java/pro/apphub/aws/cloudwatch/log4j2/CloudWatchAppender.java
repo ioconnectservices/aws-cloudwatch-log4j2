@@ -20,7 +20,6 @@ package pro.apphub.aws.cloudwatch.log4j2;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.logs.AWSLogsClient;
 import com.amazonaws.services.logs.model.InputLogEvent;
-import org.apache.logging.log4j.core.Filter;
 import org.apache.logging.log4j.core.Layout;
 import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
@@ -39,7 +38,6 @@ import java.net.URLConnection;
 import java.net.UnknownHostException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * @author Dmitry Kotlyarov
@@ -48,7 +46,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class CloudWatchAppender extends AbstractAppender {
     public static final String INSTANCE = retrieveInstance();
 
-    private final AtomicBoolean started = new AtomicBoolean(false);
+    private final AtomicBoolean enabled = new AtomicBoolean(false);
     private final AtomicBoolean flag = new AtomicBoolean(true);
     private final AtomicLong lost = new AtomicLong(0L);
     private final String group;
@@ -70,56 +68,79 @@ public final class CloudWatchAppender extends AbstractAppender {
                               Layout<? extends Serializable> layout) {
         super(name, null, layout);
 
-        this.group = group;
-        this.stream = createStream(streamPrefix, streamPostfix);
-        this.client = createClient(access, secret);
-        this.buffer1 = new Buffer(capacity);
-        this.buffer2 = new Buffer(capacity);
-        this.flushWait = new FlushWait(span);
-        this.flushThread = new Thread("aws-cloudwatch-log4j2-flush") {
-            @Override
-            public void run() {
-                while (started.get()) {
-                    try {
-                        flushWait.await(buffer1, buffer2);
-                    } catch (Throwable e) {
+        if (group != null) {
+            this.group = group;
+            this.stream = initStream(streamPrefix, streamPostfix);
+            this.client = initClient(access, secret);
+            this.buffer1 = new Buffer(capacity);
+            this.buffer2 = new Buffer(capacity);
+            this.flushWait = new FlushWait(span);
+            this.flushThread = new Thread("aws-cloudwatch-log4j2-flush") {
+                @Override
+                public void run() {
+                    while (enabled.get()) {
+                        try {
+                            flushWait.await(buffer1, buffer2);
+                        } catch (Throwable e) {
+                        }
                     }
                 }
-            }
-        };
+            };
+        } else {
+            this.group = null;
+            this.stream = null;
+            this.client = null;
+            this.buffer1 = null;
+            this.buffer2 = null;
+            this.flushWait = null;
+            this.flushThread = null;
+        }
     }
 
     @Override
     public void start() {
-        if (!started.getAndSet(true)) {
-            super.start();
+        super.start();
+        if (group != null) {
+            enabled.set(true);
+            flushThread.setDaemon(false);
+            flushThread.start();
         }
     }
 
     @Override
     public void stop() {
         super.stop();
+        if (group != null) {
+            enabled.set(false);
+            flushWait.signalAll();
+            try {
+                flushThread.join();
+            } catch (InterruptedException e) {
+            }
+        }
     }
 
     @Override
     public void append(LogEvent event) {
-        InputLogEvent e = new InputLogEvent();
-        e.setTimestamp(event.getTimeMillis());
-        e.setMessage(new String(getLayout().toByteArray(event)));
-        if (flag.get()) {
-            if (!buffer1.append(e, flushWait)) {
-                if (buffer2.append(e, flushWait)) {
-                    flag.set(false);
-                } else {
-                    lost.incrementAndGet();
+        if (enabled.get()) {
+            InputLogEvent e = new InputLogEvent();
+            e.setTimestamp(event.getTimeMillis());
+            e.setMessage(new String(getLayout().toByteArray(event)));
+            if (flag.get()) {
+                if (!buffer1.append(e, flushWait)) {
+                    if (buffer2.append(e, flushWait)) {
+                        flag.set(false);
+                    } else {
+                        lost.incrementAndGet();
+                    }
                 }
-            }
-        } else {
-            if (!buffer2.append(e, flushWait)) {
-                if (buffer1.append(e, flushWait)) {
-                    flag.set(true);
-                } else {
-                    lost.incrementAndGet();
+            } else {
+                if (!buffer2.append(e, flushWait)) {
+                    if (buffer1.append(e, flushWait)) {
+                        flag.set(true);
+                    } else {
+                        lost.incrementAndGet();
+                    }
                 }
             }
         }
@@ -196,7 +217,7 @@ public final class CloudWatchAppender extends AbstractAppender {
         }
     }
 
-    private static String createStream(String prefix, String postfix) {
+    private static String initStream(String prefix, String postfix) {
         String s = INSTANCE;
         if (prefix != null) {
             s = String.format("%s/%s", prefix, s);
@@ -207,7 +228,7 @@ public final class CloudWatchAppender extends AbstractAppender {
         return s;
     }
 
-    private static AWSLogsClient createClient(String access, String secret) {
+    private static AWSLogsClient initClient(String access, String secret) {
         if ((access != null) && (secret != null)) {
             return new AWSLogsClient(new BasicAWSCredentials(access, secret));
         } else {

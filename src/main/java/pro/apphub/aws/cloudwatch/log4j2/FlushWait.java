@@ -54,6 +54,15 @@ final class FlushWait {
         }
     }
 
+    public void signalAll() {
+        lock.lock();
+        try {
+            condition.signalAll();
+        } finally {
+            lock.unlock();
+        }
+    }
+
     public void signalAll(Runnable activity) {
         lock.lock();
         try {
