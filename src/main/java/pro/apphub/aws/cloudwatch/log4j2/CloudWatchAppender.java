@@ -19,7 +19,10 @@ package pro.apphub.aws.cloudwatch.log4j2;
 
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.logs.AWSLogsClient;
+import com.amazonaws.services.logs.model.DescribeLogGroupsRequest;
+import com.amazonaws.services.logs.model.DescribeLogGroupsResult;
 import com.amazonaws.services.logs.model.InputLogEvent;
+import com.amazonaws.services.logs.model.LogGroup;
 import org.apache.logging.log4j.core.Layout;
 import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
@@ -37,6 +40,7 @@ import java.net.InetAddress;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.UnknownHostException;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -87,6 +91,10 @@ public final class CloudWatchAppender extends AbstractAppender {
                     }
                 }
             };
+
+            if (!checkGroup(group, client)) {
+                throw new RuntimeException(String.format("Group '%s' is not found", group));
+            }
         } else {
             this.group = null;
             this.stream = null;
@@ -208,7 +216,7 @@ public final class CloudWatchAppender extends AbstractAppender {
         if (v != null) {
             return v;
         } else {
-            throw new IllegalArgumentException(String.format("Property ['%s', '%s'] is not defined", property, variable));
+            throw new RuntimeException(String.format("Property ['%s', '%s'] is not defined", property, variable));
         }
     }
 
@@ -247,5 +255,20 @@ public final class CloudWatchAppender extends AbstractAppender {
         } else {
             return new AWSLogsClient();
         }
+    }
+
+    private static boolean checkGroup(String group, AWSLogsClient client) {
+        DescribeLogGroupsResult dlgr = client.describeLogGroups(new DescribeLogGroupsRequest().withLogGroupNamePrefix(group));
+        if (dlgr != null) {
+            List<LogGroup> lgs = dlgr.getLogGroups();
+            if (lgs != null) {
+                for (LogGroup lg : lgs) {
+                    if (lg.getLogGroupName().equals(group)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 }
