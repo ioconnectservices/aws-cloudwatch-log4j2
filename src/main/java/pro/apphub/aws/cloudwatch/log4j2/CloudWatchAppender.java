@@ -26,6 +26,7 @@ import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.apache.logging.log4j.core.config.plugins.PluginAttribute;
 import org.apache.logging.log4j.core.config.plugins.PluginElement;
 import org.apache.logging.log4j.core.config.plugins.PluginFactory;
+import org.apache.logging.log4j.core.layout.PatternLayout;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -66,7 +67,7 @@ public final class CloudWatchAppender extends AbstractAppender {
                               int capacity,
                               int span,
                               Layout<? extends Serializable> layout) {
-        super(name, null, layout);
+        super(name, null, (layout != null) ? layout : PatternLayout.createDefaultLayout(), false);
 
         if (group != null) {
             this.group = group;
@@ -95,6 +96,18 @@ public final class CloudWatchAppender extends AbstractAppender {
             this.flushWait = null;
             this.flushThread = null;
         }
+    }
+
+    public boolean isEnabled() {
+        return enabled.get();
+    }
+
+    public String getGroup() {
+        return group;
+    }
+
+    public String getStream() {
+        return stream;
     }
 
     @Override
