@@ -26,6 +26,7 @@ import com.amazonaws.services.logs.model.LogGroup;
 import org.apache.logging.log4j.core.Layout;
 import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.plugins.Plugin;
 import org.apache.logging.log4j.core.config.plugins.PluginAttribute;
 import org.apache.logging.log4j.core.config.plugins.PluginElement;
 import org.apache.logging.log4j.core.config.plugins.PluginFactory;
@@ -48,6 +49,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * @author Dmitry Kotlyarov
  * @since 1.0
  */
+@Plugin(name = "CloudWatchAppender", category = "Core", elementType = "appender", printObject = true)
 public final class CloudWatchAppender extends AbstractAppender {
     public static final String INSTANCE = retrieveInstance();
 
