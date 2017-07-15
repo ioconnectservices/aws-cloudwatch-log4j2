@@ -63,8 +63,11 @@ public final class CloudWatchAppender extends AbstractAppender {
     private final String group;
     private final String stream;
     private final AWSLogsClient client;
+    private final int capacity;
     private final Buffer buffer1;
     private final Buffer buffer2;
+    private final int length;
+    private final int span;
     private final FlushWait flushWait;
     private final Thread flushThread;
     private FlushInfo flushInfo;
@@ -76,6 +79,7 @@ public final class CloudWatchAppender extends AbstractAppender {
                               String access,
                               String secret,
                               int capacity,
+                              int length,
                               int span,
                               Layout<? extends Serializable> layout) {
         super(name, null, (layout != null) ? layout : PatternLayout.createDefaultLayout(), false);
@@ -87,8 +91,11 @@ public final class CloudWatchAppender extends AbstractAppender {
             if (!checkGroup(group, client)) {
                 throw new RuntimeException(String.format("Group '%s' is not found", group));
             }
+            this.capacity = capacity;
             this.buffer1 = new Buffer(capacity);
             this.buffer2 = new Buffer(capacity);
+            this.length = length;
+            this.span = span;
             this.flushWait = new FlushWait(span);
             this.flushThread = new Thread("aws-cloudwatch-log4j2-flush") {
                 @Override
@@ -120,8 +127,11 @@ public final class CloudWatchAppender extends AbstractAppender {
             this.group = null;
             this.stream = null;
             this.client = null;
+            this.capacity = 0;
             this.buffer1 = null;
             this.buffer2 = null;
+            this.length = 0;
+            this.span = 0;
             this.flushWait = null;
             this.flushThread = null;
             this.flushInfo = null;
@@ -138,6 +148,18 @@ public final class CloudWatchAppender extends AbstractAppender {
 
     public String getStream() {
         return stream;
+    }
+
+    public int getCapacity() {
+        return capacity;
+    }
+
+    public int getLength() {
+        return length;
+    }
+
+    public int getSpan() {
+        return span;
     }
 
     @Override
@@ -168,7 +190,11 @@ public final class CloudWatchAppender extends AbstractAppender {
         if (enabled.get()) {
             InputLogEvent e = new InputLogEvent();
             e.setTimestamp(event.getTimeMillis());
-            e.setMessage(new String(getLayout().toByteArray(event)));
+            String msg = new String(getLayout().toByteArray(event));
+            if (msg.length() > length) {
+                msg = msg.substring(0, length);
+            }
+            e.setMessage(msg);
             if (flag.get()) {
                 if (!buffer1.append(e, flushWait)) {
                     if (buffer2.append(e, flushWait)) {
@@ -197,6 +223,7 @@ public final class CloudWatchAppender extends AbstractAppender {
                                                     @PluginAttribute("access") String access,
                                                     @PluginAttribute("secret") String secret,
                                                     @PluginAttribute("capacity") String capacity,
+                                                    @PluginAttribute("length") String length,
                                                     @PluginAttribute("span") String span,
                                                     @PluginElement("Layout") Layout<? extends Serializable> layout) {
         return new CloudWatchAppender((name != null) ? name : "CloudWatchAppender",
@@ -206,6 +233,7 @@ public final class CloudWatchAppender extends AbstractAppender {
                                       getProperty("aws.cloudwatch.access", "AWS_CLOUDWATCH_ACCESS", access, null),
                                       getProperty("aws.cloudwatch.secret", "AWS_CLOUDWATCH_SECRET", secret, null),
                                       Integer.parseInt(getProperty("aws.cloudwatch.capacity", "AWS_CLOUDWATCH_CAPACITY", capacity, "10000")),
+                                      Integer.parseInt(getProperty("aws.cloudwatch.length", "AWS_CLOUDWATCH_LENGTH", length, "4096")),
                                       Integer.parseInt(getProperty("aws.cloudwatch.span", "AWS_CLOUDWATCH_SPAN", span, "60")),
                                       layout);
     }
