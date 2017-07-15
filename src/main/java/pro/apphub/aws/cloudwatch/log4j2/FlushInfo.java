@@ -22,11 +22,11 @@ package pro.apphub.aws.cloudwatch.log4j2;
  * @since 1.0
  */
 final class FlushInfo {
-    public final long lastTimestamp;
-    public final String sequenceToken;
+    public final long last;
+    public final String token;
 
-    public FlushInfo(long lastTimestamp, String sequenceToken) {
-        this.lastTimestamp = lastTimestamp;
-        this.sequenceToken = sequenceToken;
+    public FlushInfo(long last, String token) {
+        this.last = last;
+        this.token = token;
     }
 }

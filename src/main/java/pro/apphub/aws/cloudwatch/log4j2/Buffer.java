@@ -90,12 +90,12 @@ final class Buffer {
         }
     }
 
-    public FlushInfo flush(AWSLogsClient logsClient, String group, String stream, FlushInfo flushInfo, AtomicLong lost) {
+    public FlushInfo flush(AWSLogsClient client, String group, String stream, FlushInfo info, AtomicLong lost) {
         ready.set(false);
         try {
             while (threads.get() > 0) {
                 try {
-                    Thread.sleep(200L);
+                    Thread.sleep(500L);
                 } catch (InterruptedException e) {
                 }
             }
@@ -117,18 +117,18 @@ final class Buffer {
                             return o1.getTimestamp().compareTo(o2.getTimestamp());
                         }
                     });
-                    long lts = flushInfo.lastTimestamp;
-                    if (lts > 0) {
+                    long lst = info.last;
+                    if (lst > 0L) {
                         for (InputLogEvent e : eventsList) {
-                            if (e.getTimestamp() < lts) {
-                                e.setTimestamp(lts);
+                            if (e.getTimestamp() < lst) {
+                                e.setTimestamp(lst);
                             } else {
                                 break;
                             }
                         }
                     }
-                    lts = eventsList.get(eventsList.size() - 1).getTimestamp();
-                    String stok = flushInfo.sequenceToken;
+                    lst = eventsList.get(eventsList.size() - 1).getTimestamp();
+                    String tok = info.token;
                     int c = 0;
                     int s = 0;
                     for (InputLogEvent e : eventsList) {
@@ -138,15 +138,15 @@ final class Buffer {
                             s += es;
                             eventsBatch.add(e);
                         } else {
-                            stok = putEvents(logsClient, group, stream, stok, lost, eventsBatch);
+                            tok = putEvents(client, group, stream, tok, lost, eventsBatch);
                             c = 1;
                             s = es;
                             eventsBatch.clear();
                             eventsBatch.add(e);
                         }
                     }
-                    stok = putEvents(logsClient, group, stream, stok, lost, eventsBatch);
-                    return new FlushInfo(lts, stok);
+                    tok = putEvents(client, group, stream, tok, lost, eventsBatch);
+                    return new FlushInfo(lst, tok);
                 } finally {
                     eventsBatch.clear();
                     eventsList.clear();
@@ -154,37 +154,37 @@ final class Buffer {
                     size.set(0);
                 }
             } else {
-                return flushInfo;
+                return info;
             }
         } finally {
             ready.set(true);
         }
     }
 
-    private String putEvents(AWSLogsClient logsClient,
+    private String putEvents(AWSLogsClient client,
                              String group,
                              String stream,
-                             String sequenceToken,
+                             String token,
                              AtomicLong lost,
-                             ArrayList<InputLogEvent> eventsBatch) {
-        if (!eventsBatch.isEmpty()) {
+                             ArrayList<InputLogEvent> events) {
+        if (!events.isEmpty()) {
             try {
-                PutLogEventsRequest req = new PutLogEventsRequest(group, stream, eventsBatch);
-                req.setSequenceToken(sequenceToken);
-                PutLogEventsResult res = logsClient.putLogEvents(req);
+                PutLogEventsRequest req = new PutLogEventsRequest(group, stream, events);
+                req.setSequenceToken(token);
+                PutLogEventsResult res = client.putLogEvents(req);
                 return res.getNextSequenceToken();
             } catch (DataAlreadyAcceptedException e) {
-                lost.addAndGet(eventsBatch.size());
+                lost.addAndGet(events.size());
                 return e.getExpectedSequenceToken();
             } catch (InvalidSequenceTokenException e) {
-                lost.addAndGet(eventsBatch.size());
+                lost.addAndGet(events.size());
                 return e.getExpectedSequenceToken();
             } catch (Exception e) {
-                lost.addAndGet(eventsBatch.size());
-                return sequenceToken;
+                lost.addAndGet(events.size());
+                return token;
             }
         } else {
-            return sequenceToken;
+            return token;
         }
     }
 }

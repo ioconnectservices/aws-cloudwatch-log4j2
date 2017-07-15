@@ -19,10 +19,14 @@ package pro.apphub.aws.cloudwatch.log4j2;
 
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.logs.AWSLogsClient;
+import com.amazonaws.services.logs.model.CreateLogStreamRequest;
 import com.amazonaws.services.logs.model.DescribeLogGroupsRequest;
 import com.amazonaws.services.logs.model.DescribeLogGroupsResult;
+import com.amazonaws.services.logs.model.DescribeLogStreamsRequest;
+import com.amazonaws.services.logs.model.DescribeLogStreamsResult;
 import com.amazonaws.services.logs.model.InputLogEvent;
 import com.amazonaws.services.logs.model.LogGroup;
+import com.amazonaws.services.logs.model.LogStream;
 import org.apache.logging.log4j.core.Layout;
 import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
@@ -63,6 +67,7 @@ public final class CloudWatchAppender extends AbstractAppender {
     private final Buffer buffer2;
     private final FlushWait flushWait;
     private final Thread flushThread;
+    private FlushInfo flushInfo;
 
     public CloudWatchAppender(String name,
                               String group,
@@ -79,6 +84,9 @@ public final class CloudWatchAppender extends AbstractAppender {
             this.group = group;
             this.stream = initStream(streamPrefix, streamPostfix);
             this.client = initClient(access, secret);
+            if (!checkGroup(group, client)) {
+                throw new RuntimeException(String.format("Group '%s' is not found", group));
+            }
             this.buffer1 = new Buffer(capacity);
             this.buffer2 = new Buffer(capacity);
             this.flushWait = new FlushWait(span);
@@ -87,16 +95,27 @@ public final class CloudWatchAppender extends AbstractAppender {
                 public void run() {
                     while (enabled.get()) {
                         try {
-                            flushWait.await(buffer1, buffer2);
+                            flushWait.await(enabled, buffer1, buffer2);
+                            flushInfo = buffer1.flush(client, CloudWatchAppender.this.group, stream, flushInfo, lost);
+                        } catch (Throwable e) {
+                        }
+                        try {
+                            flushWait.await(enabled, buffer1, buffer2);
+                            flushInfo = buffer2.flush(client, CloudWatchAppender.this.group, stream, flushInfo, lost);
                         } catch (Throwable e) {
                         }
                     }
+                    try {
+                        flushInfo = buffer1.flush(client, CloudWatchAppender.this.group, stream, flushInfo, lost);
+                    } catch (Throwable e) {
+                    }
+                    try {
+                        flushInfo = buffer2.flush(client, CloudWatchAppender.this.group, stream, flushInfo, lost);
+                    } catch (Throwable e) {
+                    }
                 }
             };
-
-            if (!checkGroup(group, client)) {
-                throw new RuntimeException(String.format("Group '%s' is not found", group));
-            }
+            this.flushInfo = new FlushInfo(0L, checkStream(group, stream, client));
         } else {
             this.group = null;
             this.stream = null;
@@ -105,6 +124,7 @@ public final class CloudWatchAppender extends AbstractAppender {
             this.buffer2 = null;
             this.flushWait = null;
             this.flushThread = null;
+            this.flushInfo = null;
         }
     }
 
@@ -272,5 +292,21 @@ public final class CloudWatchAppender extends AbstractAppender {
             }
         }
         return false;
+    }
+
+    private static String checkStream(String group, String stream, AWSLogsClient client) {
+        DescribeLogStreamsResult dlsr = client.describeLogStreams(new DescribeLogStreamsRequest(group).withLogStreamNamePrefix(stream));
+        if (dlsr != null) {
+            List<LogStream> lss = dlsr.getLogStreams();
+            if (lss != null) {
+                for (LogStream ls : lss) {
+                    if (ls.getLogStreamName().equals(stream)) {
+                        return ls.getUploadSequenceToken();
+                    }
+                }
+            }
+        }
+        client.createLogStream(new CreateLogStreamRequest(group, stream));
+        return null;
     }
 }

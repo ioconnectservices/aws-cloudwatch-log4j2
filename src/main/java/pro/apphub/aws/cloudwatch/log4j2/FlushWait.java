@@ -18,7 +18,7 @@
 package pro.apphub.aws.cloudwatch.log4j2;
 
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -30,21 +30,21 @@ final class FlushWait {
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition condition = lock.newCondition();
     private final long span;
-    private long prevTime = 0;
+    private long prev = System.currentTimeMillis();
 
     public FlushWait(int span) {
         this.span = span * 1000L;
     }
 
-    public void await(Buffer buffer1, Buffer buffer2) {
-        long nextTime = prevTime + span;
+    public void await(AtomicBoolean enabled, Buffer buffer1, Buffer buffer2) {
+        long next = prev + span;
         long time = System.currentTimeMillis();
-        if (time < nextTime) {
+        if (time < next) {
             lock.lock();
             try {
-                if (buffer1.isReady() && buffer2.isReady()) {
+                if (enabled.get() && buffer1.isReady() && buffer2.isReady()) {
                     try {
-                        condition.await(nextTime - time, TimeUnit.MILLISECONDS);
+                        condition.await(next - time, TimeUnit.MILLISECONDS);
                     } catch (InterruptedException e) {
                     }
                 }
@@ -52,6 +52,7 @@ final class FlushWait {
                 lock.unlock();
             }
         }
+        prev = System.currentTimeMillis();
     }
 
     public void signalAll() {
