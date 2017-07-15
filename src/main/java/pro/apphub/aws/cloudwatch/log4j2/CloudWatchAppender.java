@@ -103,20 +103,24 @@ public final class CloudWatchAppender extends AbstractAppender {
                     while (enabled.get()) {
                         try {
                             flushWait.await(enabled, buffer1, buffer2);
+                            flag.set(false);
                             flushInfo = buffer1.flush(client, CloudWatchAppender.this.group, stream, flushInfo, lost);
                         } catch (Throwable e) {
                         }
                         try {
                             flushWait.await(enabled, buffer1, buffer2);
+                            flag.set(true);
                             flushInfo = buffer2.flush(client, CloudWatchAppender.this.group, stream, flushInfo, lost);
                         } catch (Throwable e) {
                         }
                     }
                     try {
+                        flag.set(false);
                         flushInfo = buffer1.flush(client, CloudWatchAppender.this.group, stream, flushInfo, lost);
                     } catch (Throwable e) {
                     }
                     try {
+                        flag.set(true);
                         flushInfo = buffer2.flush(client, CloudWatchAppender.this.group, stream, flushInfo, lost);
                     } catch (Throwable e) {
                     }
@@ -197,17 +201,13 @@ public final class CloudWatchAppender extends AbstractAppender {
             e.setMessage(msg);
             if (flag.get()) {
                 if (!buffer1.append(e, flushWait)) {
-                    if (buffer2.append(e, flushWait)) {
-                        flag.set(false);
-                    } else {
+                    if (!buffer2.append(e, flushWait)) {
                         lost.incrementAndGet();
                     }
                 }
             } else {
                 if (!buffer2.append(e, flushWait)) {
-                    if (buffer1.append(e, flushWait)) {
-                        flag.set(true);
-                    } else {
+                    if (!buffer1.append(e, flushWait)) {
                         lost.incrementAndGet();
                     }
                 }
