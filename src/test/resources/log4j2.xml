@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="info">
 	<Appenders>
-        <Console name="console" target="SYSTEM_OUT">
-            <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n" />
-        </Console>
+        <CloudWatchAppender name="cloudwatch" group="log4j2" streamPrefix="test" streamPostfix="main">
+            <PatternLayout pattern="%-5level [%t] %logger{1} - %msg%n"/>
+        </CloudWatchAppender>
 	</Appenders>
 	<Loggers>
 		<Root level="debug">
-            <AppenderRef ref="console"/>
+            <AppenderRef ref="cloudwatch"/>
 		</Root>
 	</Loggers>
 </Configuration>
