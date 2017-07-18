@@ -97,7 +97,7 @@ public final class CloudWatchAppender extends AbstractAppender {
             this.length = length;
             this.span = span;
             this.flushWait = new FlushWait(span);
-            this.flushThread = new Thread("aws-cloudwatch-log4j2-flush") {
+            this.flushThread = new Thread(String.format("aws-cloudwatch-log4j2-flush-%s", name)) {
                 @Override
                 public void run() {
                     while (enabled.get()) {
@@ -226,7 +226,7 @@ public final class CloudWatchAppender extends AbstractAppender {
                                                     @PluginAttribute("length") String length,
                                                     @PluginAttribute("span") String span,
                                                     @PluginElement("Layout") Layout<? extends Serializable> layout) {
-        return new CloudWatchAppender((name != null) ? name : "CloudWatchAppender",
+        return new CloudWatchAppender((name != null) ? name : "cloudwatch",
                                       getProperty("aws.cloudwatch.group", "AWS_CLOUDWATCH_GROUP", group, null),
                                       getProperty("aws.cloudwatch.stream.prefix", "AWS_CLOUDWATCH_STREAM_PREFIX", streamPrefix, null),
                                       getProperty("aws.cloudwatch.stream.postfix", "AWS_CLOUDWATCH_STREAM_POSTFIX", streamPostfix, null),
