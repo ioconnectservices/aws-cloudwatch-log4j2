@@ -64,18 +64,22 @@ final class Buffer {
             threads.incrementAndGet();
             try {
                 if (ready.get()) {
-                    int s = size.getAndIncrement();
-                    if (s < capacity) {
-                        eventsQueue.offer(event);
-                        if (s + 1 == capacity) {
-                            flushWait.signalAll(new Runnable() {
-                                @Override
-                                public void run() {
-                                    ready.set(false);
-                                }
-                            });
+                    if (size.get() < capacity) {
+                        int s = size.getAndIncrement();
+                        if (s < capacity) {
+                            eventsQueue.offer(event);
+                            if (s + 1 == capacity) {
+                                flushWait.signalAll(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        ready.set(false);
+                                    }
+                                });
+                            }
+                            return true;
+                        } else {
+                            return false;
                         }
-                        return true;
                     } else {
                         return false;
                     }
