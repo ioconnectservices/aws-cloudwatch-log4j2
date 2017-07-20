@@ -27,6 +27,7 @@ import com.amazonaws.services.logs.model.DescribeLogStreamsResult;
 import com.amazonaws.services.logs.model.InputLogEvent;
 import com.amazonaws.services.logs.model.LogGroup;
 import com.amazonaws.services.logs.model.LogStream;
+import org.apache.logging.log4j.core.Filter;
 import org.apache.logging.log4j.core.Layout;
 import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
@@ -81,8 +82,9 @@ public final class CloudWatchAppender extends AbstractAppender {
                               int capacity,
                               int length,
                               int span,
+                              Filter filter,
                               Layout<? extends Serializable> layout) {
-        super(name, null, (layout != null) ? layout : PatternLayout.createDefaultLayout(), false);
+        super(name, filter, (layout != null) ? layout : PatternLayout.createDefaultLayout(), false);
 
         if (group != null) {
             this.group = group;
@@ -225,6 +227,7 @@ public final class CloudWatchAppender extends AbstractAppender {
                                                     @PluginAttribute("capacity") String capacity,
                                                     @PluginAttribute("length") String length,
                                                     @PluginAttribute("span") String span,
+                                                    @PluginElement("Filter") Filter filter,
                                                     @PluginElement("Layout") Layout<? extends Serializable> layout) {
         return new CloudWatchAppender((name != null) ? name : "cloudwatch",
                                       getProperty("aws.cloudwatch.group", "AWS_CLOUDWATCH_GROUP", group, null),
@@ -235,6 +238,7 @@ public final class CloudWatchAppender extends AbstractAppender {
                                       Integer.parseInt(getProperty("aws.cloudwatch.capacity", "AWS_CLOUDWATCH_CAPACITY", capacity, "10000")),
                                       Integer.parseInt(getProperty("aws.cloudwatch.length", "AWS_CLOUDWATCH_LENGTH", length, "4096")),
                                       Integer.parseInt(getProperty("aws.cloudwatch.span", "AWS_CLOUDWATCH_SPAN", span, "60")),
+                                      filter,
                                       layout);
     }
 
