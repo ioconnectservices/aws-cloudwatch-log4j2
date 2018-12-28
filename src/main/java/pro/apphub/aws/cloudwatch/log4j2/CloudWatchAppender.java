@@ -18,6 +18,7 @@
 package pro.apphub.aws.cloudwatch.log4j2;
 
 import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.regions.RegionUtils;
 import com.amazonaws.services.logs.AWSLogsClient;
 import com.amazonaws.services.logs.model.CreateLogStreamRequest;
 import com.amazonaws.services.logs.model.DescribeLogGroupsRequest;
@@ -77,6 +78,7 @@ public final class CloudWatchAppender extends AbstractAppender {
                               String group,
                               String streamPrefix,
                               String streamPostfix,
+                              String region,
                               String access,
                               String secret,
                               int capacity,
@@ -89,7 +91,7 @@ public final class CloudWatchAppender extends AbstractAppender {
         if (group != null) {
             this.group = group;
             this.stream = initStream(streamPrefix, streamPostfix);
-            this.client = initClient(access, secret);
+            this.client = initClient(region, access, secret);
             if (!checkGroup(group, client)) {
                 throw new RuntimeException(String.format("Group '%s' is not found", group));
             }
@@ -222,6 +224,7 @@ public final class CloudWatchAppender extends AbstractAppender {
                                                     @PluginAttribute("group") String group,
                                                     @PluginAttribute("streamPrefix") String streamPrefix,
                                                     @PluginAttribute("streamPostfix") String streamPostfix,
+                                                    @PluginAttribute("region") String region,
                                                     @PluginAttribute("access") String access,
                                                     @PluginAttribute("secret") String secret,
                                                     @PluginAttribute("capacity") String capacity,
@@ -233,6 +236,7 @@ public final class CloudWatchAppender extends AbstractAppender {
                                       getProperty("aws.cloudwatch.group", "AWS_CLOUDWATCH_GROUP", group, null),
                                       getProperty("aws.cloudwatch.stream.prefix", "AWS_CLOUDWATCH_STREAM_PREFIX", streamPrefix, null),
                                       getProperty("aws.cloudwatch.stream.postfix", "AWS_CLOUDWATCH_STREAM_POSTFIX", streamPostfix, null),
+                                      getProperty("aws.cloudwatch.region", "AWS_CLOUDWATCH_REGION", region, null),
                                       getProperty("aws.cloudwatch.access", "AWS_CLOUDWATCH_ACCESS", access, null),
                                       getProperty("aws.cloudwatch.secret", "AWS_CLOUDWATCH_SECRET", secret, null),
                                       Integer.parseInt(getProperty("aws.cloudwatch.capacity", "AWS_CLOUDWATCH_CAPACITY", capacity, "10000")),
@@ -303,12 +307,17 @@ public final class CloudWatchAppender extends AbstractAppender {
         return s;
     }
 
-    private static AWSLogsClient initClient(String access, String secret) {
+    private static AWSLogsClient initClient(String region, String access, String secret) {
+        AWSLogsClient client;
         if ((access != null) && (secret != null)) {
-            return new AWSLogsClient(new BasicAWSCredentials(access, secret));
+            client = new AWSLogsClient(new BasicAWSCredentials(access, secret));
         } else {
-            return new AWSLogsClient();
+            client = new AWSLogsClient();
         }
+        if (region != null) {
+            client.setRegion(RegionUtils.getRegion(region));
+        }
+        return client;
     }
 
     private static boolean checkGroup(String group, AWSLogsClient client) {
