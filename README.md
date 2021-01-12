@@ -1,6 +1,9 @@
 # aws-cloudwatch-log4j2
 AWS CloudWatch Log4j2 Appender
 
+### Disclaimer
+This appender is provided as-is and IO Connect Services will not commit to support it.
+
 ### log4j2.xml file example
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
