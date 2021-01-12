@@ -17,7 +17,7 @@
 
 package pro.apphub.aws.cloudwatch.log4j2;
 
-import com.amazonaws.services.logs.AWSLogsClient;
+import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.model.DataAlreadyAcceptedException;
 import com.amazonaws.services.logs.model.InputLogEvent;
 import com.amazonaws.services.logs.model.InvalidSequenceTokenException;
@@ -94,7 +94,7 @@ final class Buffer {
         }
     }
 
-    public FlushInfo flush(AWSLogsClient client, String group, String stream, FlushInfo info, AtomicLong lost) {
+    public FlushInfo flush(AWSLogs client, String group, String stream, FlushInfo info, AtomicLong lost) {
         ready.set(false);
         try {
             while (threads.get() > 0) {
@@ -165,7 +165,7 @@ final class Buffer {
         }
     }
 
-    private String putEvents(AWSLogsClient client,
+    private String putEvents(AWSLogs client,
                              String group,
                              String stream,
                              String token,
