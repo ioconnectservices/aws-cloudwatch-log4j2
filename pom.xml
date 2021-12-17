@@ -21,7 +21,7 @@
 
     <groupId>pro.apphub</groupId>
     <artifactId>aws-cloudwatch-log4j2</artifactId>
-    <version>2.5.1-SNAPSHOT</version>
+    <version>2.5.2</version>
     <packaging>jar</packaging>
 
     <name>AWS CloudWatch Log4j2 Appender</name>
